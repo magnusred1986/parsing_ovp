@@ -31,3 +31,6 @@
 beautifulsoup, requests, fake_useragent, subprocess, pandas, os, win32com.client, datetime, 
 smtplib, email
 ```
+
+### Авторы
+Сергей К [ссылка на telegram](https://t.me/magnus_red) 
