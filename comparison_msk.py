@@ -19,6 +19,13 @@ pd.set_option('chained_assignment', None)
 pd.options.display.max_colwidth = 100 # увеличить максимальную ширину столбца
 pd.set_option('display.max_columns', None) # макс кол-во отображ столбц
 
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from fake_useragent import UserAgent
+import time
+import random
+
 # функция проверки шапки по первой строке если шапка не в первой строке и такм нен упоминания слова vin значит ищем по всем столцам и находим первое вхождение возвращаем строку и обрезаем df
 def header_df(df):
     """Преобразование шапки df  
@@ -265,13 +272,79 @@ def conversorrrrrr_date(df, name_date_columns:str):
         return df
     except:
         logging.error(f"{conversorrrrrr_date.__name__} - ОШИБКА", exc_info=True)
+        
+# собиарем ссылки с сайта
+all_links = []
+page = 0
+try:
+    while True:
+        url = f'https://www.sim-autopro.ru/cars/?filter_auto_marka=&filter_auto_model=&filter_auto_kpp=&filter_price_from=&filter_price_to=&filter_auto_god_from=&filter_auto_god_to=&filter_auto_tip_dvigatela=&filter_auto_privod=&filter_auto_tip_kuzova=&filter_auto_moshnost6=75%7C277&filter_auto_probeg=6%7C339090&page={page}'
+        session = requests.Session()
+        ua = UserAgent()
+        headers = {'user-agen': ua.random}
+        response = session.get(url, headers=headers, verify=False) # verify=False игнорировать проверку SSL-сертификата
+        # time.sleep(random.randint(1,5))
+        if response.status_code != 200:
+            print(f'Ошибка ответа {response.status_code}')
+            logging.error(f"Ошибка ответа - ОШИБКА {response.status_code}", exc_info=True)
+
+        soup = BeautifulSoup(response.text, 'lxml')
+        result = soup.find_all('div', class_='usedcar')
+        links = [i.find('a', class_='title')['href'] for i in result]
+        all_links+=links
+        print(page)
+        logging.info(f"ЗАПУСК {page}")
+
+        if len(links) < 1:
+            break
+        page +=1
+
+        print(links)
+except Exception as ex_:
+    logging.error(f"{ex_} - ОШИБКА", exc_info=True)
+    
+
+
+
+# блок сбора инфо по карточкам
+all_auto = []
+
+try:
+    for link_ in all_links:
+        session = requests.Session()
+        ua = UserAgent()
+        headers = {'user-agen': ua.random}
+        #time.sleep(random.randint(1,5))
+        static_url = f'https://www.sim-autopro.ru{link_}'
+        response = session.get(static_url, headers=headers, verify=False) # verify=False игнорировать проверку SSL-сертификата
+        if response.status_code != 200:
+            print(f'Ошибка ссылки {response.status_code}')
+            logging.error(f"Ошибка ответа - ОШИБКА {response.status_code}", exc_info=True)
+
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'lxml')
+
+        # вся инфа с 1 блока
+        items = [i.text.replace("₽","").replace(" ","")  if "₽" in  i.text else i.text for i in soup.find('div', class_='items').find_all('strong')]+[static_url]
+        all_auto.append(items)
+        print(items)
+        logging.info(f"ЗАПУСК {items}")
+        
+
+except Exception as ex_:
+    print(ex_)
+    logging.error(f"{ex_} - ОШИБКА", exc_info=True)
+    
+logging.info(f"заполняем df данными df_ovp_msc")
+df_ovp_msc = pd.DataFrame(all_auto, columns=['Марка', 'Модель', 'Модификация', 'Комплектация', 'Цвет кузова', 'Год выпуска', 'Тип кузова',
+                            'Цена', 'Пробег', 'Тип двигателя', 'Объем двигателя', 'Привод', 'Мощность', 'КПП', 'Тип дисков',
+                            'Размер дисков', 'Сезонность шин', 'Размер шин', 'Состояние', 'Руль', 'Статус', 'VIN',
+                            'Хозяев по ПТС', 'Таможня', 'Ссылка'])
+
 
 
 # подтягиваем информацию
 logging.info("Считываем базы данных")
-
-df_ovp_msc = pd.read_csv(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\auto_ovp.csv', delimiter=';', skiprows=0, low_memory=False) # выгрузка с сайта по МСК https://www.sim-autopro.ru
-#df_ovp_all = pd.read_csv(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\auto_ovp_all.csv', delimiter=';', skiprows=0, low_memory=False) # выгрузка со всех площадок https://sim-auto.ru/
 
 ovp_fact_msc = pd.read_excel(fr'\\SERVER-VM15.SIM.LOCAL\Varsh1$\DPA\Юго-Запад\Payment\ОВП ЮЗ.xlsx', sheet_name='Склад')
 ovp_fact_msc = header_df(ovp_fact_msc) # находим шапку
@@ -300,7 +373,7 @@ df_ovp_msc_res['сравнение_цены_яр'] = df_ovp_msc_res['VIN'].apply
 df_ovp_msc_res['сравнение_цены_сар'] = df_ovp_msc_res['VIN'].apply(lambda x: plan_price(x, ovp_fact_sar))
 
 df_ovp_msc_res['сравнение_цены_итог'] = df_ovp_msc_res['сравнение_цены_мск'] + df_ovp_msc_res['сравнение_цены_яр'] + df_ovp_msc_res['сравнение_цены_сар']
-df_ovp_msc['разница_сайта_и_плана_отчет'] = df_ovp_msc['Цена'] - df_ovp_msc['сравнение_цены_итог']
+df_ovp_msc['разница_сайта_и_плана_отчет'] = df_ovp_msc.apply(lambda df_ovp_msc: (int(df_ovp_msc.Цена) - int(df_ovp_msc.сравнение_цены_итог)), axis=1)
 
 # проевряем были ли выданы авто на сайте - если да, тянем даты выдач
 df_ovp_msc_res['дата_выдачи_по_NP'] = df_ovp_msc_res['VIN'].apply(lambda x: vidaca(x, result_temp))
@@ -342,7 +415,7 @@ auto_na_sclade_msc['сегодня'] = pd.to_datetime(auto_na_sclade_msc['сег
 auto_na_sclade_msc['Дата заказа /контракта'] = pd.to_datetime(auto_na_sclade_msc['Дата заказа /контракта'])
 auto_na_sclade_msc['дней_с_момента_прихода'] = auto_na_sclade_msc['сегодня'] - auto_na_sclade_msc['Дата прихода']
 
-auto_na_sclade_msc = auto_na_sclade_msc.sort_values(by=['дней_с_момента_прихода']) 
+auto_na_sclade_msc = auto_na_sclade_msc.sort_values(by=['дней_с_момента_прихода', 'VIN']) 
 auto_na_sclade_msc = auto_na_sclade_msc[['VIN','Марка', 'Модель', 'Дата прихода', 'Дата заказа /контракта', 'дней_с_момента_прихода', 'Примечание']]
 
 # сохраняем результат проверки данных склада с сайтом

@@ -25,6 +25,14 @@ import pandas as pd
 import os
 from datetime import datetime, date, timedelta
 
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+import time
+from fake_useragent import UserAgent
+from selenium.webdriver import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
 # считываем актуальный пароль 
 def my_pass():
     """функция считывания пароля
@@ -72,7 +80,7 @@ def send_mail(send_to:list):
     try:
         send_from = 'skrutko@sim-auto.ru'                                                                
         subject = f"Сравнение складов ОВП с данными сайтов на {(datetime.now()).strftime('%d-%m-%Y')}"                                                                  
-        text = f"Здравствуйте\nВо вложении проверка складов ОВП с сайтами sim-auto.ru и sim-autopro.ru на {(datetime.now()).strftime('%d-%m-%Y')}"                                                                      
+        text = f"Здравствуйте\nВо вложении проверка складов ОВП с сайтами: avito.ru, sim-auto.ru, sim-autopro.ru на {(datetime.now()).strftime('%d-%m-%Y')}"                                                                      
         files = fr"\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\Проверка_ОВП.xlsx"  
         server = "server-vm36.SIM.LOCAL"
         port = 587
@@ -161,7 +169,7 @@ def detected_danger(filename_log = fr"\\sim.local\data\Varsh\OFFICE\CAGROUP\run_
     
     try:
         with open(filename_log, '+r') as file:
-            return 'warning' in file.read().lower()
+            return 'error' in file.read().lower()
     except:
         logging.error(f"{detected_danger.__name__} - ОШИБКА", exc_info=True)
         
@@ -183,20 +191,19 @@ def sending_mail(lst_email, lst_email_error):
         logging.error(f"{sending_mail.__name__} - ОШИБКА", exc_info=True)
         
 
-
-
-
 # вызвать сборку с сайта ОВП МСК
-logging.info(f"запуск - parsing_ovp.py")
+logging.info(f"запуск - COMPARISON_avito_msk.py")
 try:
-    subprocess.call(['py', fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\parsing_ovp.py'])
+    subprocess.call(['py', fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\COMPARISON_avito_msk.py'])
 except:
     logging.error(f"parsing_ovp.py - ОШИБКА", exc_info=True)
 
+time.sleep(20) # отдохнуть браузеру
+
 # вызвать сборку с сайта ОВП ALL
-logging.info(f"запуск - parsing_ovp_all.py")
+logging.info(f"запуск - COMPARISON_avito_reg.py")
 try:
-    subprocess.call(['py', fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\parsing_ovp_all.py']) 
+    subprocess.call(['py', fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\COMPARISON_avito_reg.py']) 
 except:
     logging.error(f"parsing_ovp_all.py - ОШИБКА", exc_info=True)
 
@@ -251,18 +258,18 @@ with open(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\par
     for i in file.readlines():
         logging.info(i)
         
-with open(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\py_log_parsing_ovp_all_sim_auto.log', 'r') as file:
+with open(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\py_log_COMPARISON_avito_msk.log', 'r') as file:
     for i in file.readlines():
         logging.info(i)
         
-with open(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\py_log_parsing_ovp_sim_autopro.log', 'r') as file:
+with open(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\py_log_COMPARISON_avito_reg.log', 'r') as file:
     for i in file.readlines():
         logging.info(i)
 
 
 # список с адресами рассылки
-lst_email = read_email_adress()
-lst_email_error = ['skrutko@sim-auto.ru', 'zhurin@sim-auto.ru'] # есть ошибки ['skrutko@sim-auto.ru', 'zhurin@sim-auto.ru']
+lst_email = read_email_adress() #['skrutko@sim-auto.ru']
+lst_email_error = ['skrutko@sim-auto.ru'] # есть ошибки ['skrutko@sim-auto.ru', 'zhurin@sim-auto.ru']
 # запуск функции рассылки почты
 logging.info(f"детектим ошибки, проверяем почту")
 sending_mail(lst_email, lst_email_error)
