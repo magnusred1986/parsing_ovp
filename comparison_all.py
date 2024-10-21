@@ -20,6 +20,12 @@ pd.set_option('chained_assignment', None)
 pd.options.display.max_colwidth = 100 # увеличить максимальную ширину столбца
 pd.set_option('display.max_columns', None) # макс кол-во отображ столбц
 
+import requests
+from bs4 import BeautifulSoup
+from fake_useragent import UserAgent
+import time
+import random
+
 
 # функция проверки шапки по первой строке если шапка не в первой строке и такм нен упоминания слова vin значит ищем по всем столцам и находим первое вхождение возвращаем строку и обрезаем df
 def header_df(df):
@@ -284,12 +290,75 @@ def vz_all_in_one(x):
             return x
     except:
         logging.error(f"{vz_all_in_one.__name__} - ОШИБКА", exc_info=True)
+        
 
+# блок сбора инфы с сайта
+logging.info(f"ЗАПУСК сбора VIN с сайта")
+all_links = []
+
+try:
+    page = 0
+    while True:
+        url = f'https://sim-auto.ru/usedcars/?filter_sort=default&filter_direction=up&filter_marka=&filter_model=&filter_price=118000%3B4105000&filter_probeg=653%3B339090&filter_city=&filter_center=&filter_kpp=&filter_year=&filter_power=&filter_complect=&filter_body_type=&page={page}'
+        response = requests.get(url, verify=False) # verify=False или ssl=False игнорировать проверку SSL-сертификата
+        if response.status_code != 200:
+            print(f'Ошибка севрвера {response.status_code}')
+            logging.error(f"{response.status_code} - ОШИБКА", exc_info=True)
+            
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'html.parser')
+        res = soup.find_all('div', class_='image_container')
+        links = [i.find('a', class_='add_compare')['href'].replace('#','') for i in res]
+        logging.info(f"ЗАПУСК {links}")
+        all_links+=links
+        print([i.find('a', class_='add_compare')['href'].replace('#','') for i in res])
+        if len(links)<1:
+            break
+        page+=1
+except Exception as ex_:
+    logging.error(f"{ex_} - ОШИБКА", exc_info=True)
+    
+
+# блок сбора инфо по карточкам
+all_auto = []
+
+logging.info(f"ЗАПУСК сбора общей информации с сайта")
+# блок сбора общей инфо
+try:
+    for link_ in all_links:
+        session = requests.Session()
+        ua = UserAgent()
+        headers = {'user-agen': ua.random}
+        #time.sleep(random.randint(1,5))
+        static_url = f'https://sim-auto.ru/usedcars/{link_}.html'
+        response = session.get(static_url, headers=headers, verify=False) # verify=False игнорировать проверку SSL-сертификата
+        if response.status_code != 200:
+            print(f'Ошибка ссылки {response.status_code}')
+            logging.error(f"{response.status_code} - ОШИБКА", exc_info=True)
+
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'lxml')
+        price = [i.text.replace(' ','') for i in soup.find('div', class_='price').find_all('span')]
+        items = [i.text for i in soup.find('ul', class_='props').find_all('strong')]
+        location = [i.text for i in soup.find('ul', class_='center_info').find_all('strong')][0]
+        concat_info = items+price+[location]+[static_url]
+        all_auto.append(concat_info)
+        
+        print(static_url, concat_info)
+        logging.info(f"ЗАПУСК {static_url, concat_info}")
+except Exception as ex_:
+    logging.error(f"{ex_} - ОШИБКА", exc_info=True)
+
+
+logging.info("Сбор данных сайта в df")
+df_ovp_all = pd.DataFrame(all_auto, columns=['Марка', 'Модель', 'Комплектация', 'Год выпуска', 'Пробег', 'Модификация', 'Объем двигателя',
+                            'Привод', 'Мощность', 'КПП', 'Тип кузова', 'Цвет кузова', 'VIN', 'Количество владельцев', 'Руль',
+                            'Цена', 'Локация', 'Ссылка'])
 
 # подтягиваем информацию
 logging.info("Считываем базы данных")
-#df_ovp_msc = pd.read_csv(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\auto_ovp.csv', delimiter=';', skiprows=0, low_memory=False) # выгрузка с сайта по МСК https://www.sim-autopro.ru
-df_ovp_all = pd.read_csv(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\auto_ovp_all.csv', delimiter=';', skiprows=0, low_memory=False) # выгрузка со всех площадок https://sim-auto.ru/
+# #df_ovp_msc = pd.read_csv(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\auto_ovp.csv', delimiter=';', skiprows=0, low_memory=False) # выгрузка с сайта по МСК https://www.sim-autopro.ru
+# df_ovp_all = pd.read_csv(fr'\\sim.local\data\Varsh\OFFICE\CAGROUP\run_python\task_scheduler\parsing_ovp\auto_ovp_all.csv', delimiter=';', skiprows=0, low_memory=False) # выгрузка со всех площадок https://sim-auto.ru/
 
 ovp_fact_msc = pd.read_excel(fr'\\SERVER-VM15.SIM.LOCAL\Varsh1$\DPA\Юго-Запад\Payment\ОВП ЮЗ.xlsx', sheet_name='Склад')
 ovp_fact_msc = header_df(ovp_fact_msc) # находим шапку
@@ -317,7 +386,8 @@ df_ovp_all_res['сравнение_цены_яр'] = df_ovp_all_res['VIN'].apply
 # сравнение выгрузки сайта с df OVP САР
 df_ovp_all_res['сравнение_цены_сар'] = df_ovp_all_res['VIN'].apply(lambda x: plan_price(x, ovp_fact_sar))
 df_ovp_all_res['сравнение_цены_итог'] = df_ovp_all_res['сравнение_цены_мск'] + df_ovp_all_res['сравнение_цены_яр'] + df_ovp_all_res['сравнение_цены_сар']
-df_ovp_all_res['разница_сайта_и_плана_отчет'] = df_ovp_all_res['Цена'] - df_ovp_all_res['сравнение_цены_итог']
+df_ovp_all_res['разница_сайта_и_плана_отчет'] = df_ovp_all_res.apply(lambda df_ovp_all_res: (float(df_ovp_all_res.Цена) - float(df_ovp_all_res.сравнение_цены_итог)), axis=1)
+df_ovp_all_res['разница_сайта_и_плана_отчет'] = df_ovp_all_res['разница_сайта_и_плана_отчет'].apply(lambda x: int(x) if 'nan' not in str(x)  else 0)
 
 
 # проевряем были ли выданы авто на сайте - если да, тянем даты выдач
@@ -367,7 +437,7 @@ auto_na_sclade_all_['Дата заказа /контракта'] = pd.to_datetim
 
 auto_na_sclade_all_['дней_с_момента_прихода'] = auto_na_sclade_all_['сегодня'] - auto_na_sclade_all_['Дата прихода']
 
-auto_na_sclade_all_ = auto_na_sclade_all_.sort_values(by=['дней_с_момента_прихода']) 
+auto_na_sclade_all_ = auto_na_sclade_all_.sort_values(by=['дней_с_момента_прихода', 'VIN']) 
 auto_na_sclade_all_ = auto_na_sclade_all_[['VIN','Марка', 'Модель', 'Дата прихода', 'Дата заказа /контракта', 'дней_с_момента_прихода', 'Примечание', 'Площадка']]
 # конвертируем ЮЗЧери в ЮЗ
 auto_na_sclade_all_['Площадка'] = auto_na_sclade_all_.apply(lambda x: vz_all_in_one(x.Площадка), axis=1)
